@@ -20,6 +20,7 @@ from keras.layers import LeakyReLU, Dropout
 from keras.layers import BatchNormalization
 from keras.optimizers import Adam, RMSprop
 from keras.preprocessing.image import ImageDataGenerator
+from keras.models import load_model
 
 import matplotlib.pyplot as plt
 
@@ -36,6 +37,7 @@ class ElapsedTimer(object):
             return str(sec / (60 * 60)) + " hr"
     def elapsed_time(self):
         print("Elapsed: %s " % self.elapsed(time.time() - self.start_time) )
+
 
 class DCGAN(object):
     def __init__(self, img_rows=64, img_cols=64, channel=3):
@@ -92,7 +94,6 @@ class DCGAN(object):
         self.D.add(Activation('sigmoid'))
         self.D.summary()
         return self.D
-
 
     def generator(self):
         if self.G:
@@ -234,6 +235,9 @@ class BUSH_DCGAN(object):
                 if (i+1)%save_interval==0:
                     self.plot_images(save2file=True, samples=noise_input.shape[0],
                                      noise=noise_input, step=(i+1))
+                    self.adversarial.save('BushGAN_adversarial.h5')
+                    self.discriminator.save('BushGAN_discriminator.h5')
+                    self.generator.save('BushGAN_generator.h5')
 
     def plot_images(self, save2file=False, fake=True, samples=16, noise=None, step=0):
         filename = 'GWB_real.png'
@@ -288,7 +292,7 @@ def load_data(n_images=530):
 if __name__ == '__main__':
     mnist_dcgan = BUSH_DCGAN(wanted_size=64)
     timer = ElapsedTimer()
-    mnist_dcgan.train(train_steps=10, batch_size=32, save_interval=5)
+    mnist_dcgan.train(train_steps=10000, batch_size=32, save_interval=500)
     timer.elapsed_time()
     mnist_dcgan.plot_images(fake=True)
     mnist_dcgan.plot_images(fake=False, save2file=True)
