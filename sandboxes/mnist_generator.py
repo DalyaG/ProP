@@ -4,7 +4,7 @@
 # https://github.com/roatienza/Deep-Learning-Experiments/blob/master/Experiments/Tensorflow/GAN/dcgan_mnist.py
 
 '''
-DCGAN on MNIST using Keras
+dcgan on MNIST using Keras
 Author: Rowel Atienza
 Project: https://github.com/roatienza/Deep-Learning-Experiments
 Dependencies: tensorflow 1.0 and keras 2.0

@@ -45,12 +45,13 @@ class DCGAN(object):
         self.img_rows = img_rows
         self.img_cols = img_cols
         self.channel = channel
-        self.D = None   # discriminator
-        self.G = None   # generator
+
+        self.D = None  # discriminator
+        self.G = None  # generator
         self.AM = None  # adversarial model
         self.DM = None  # discriminator model
 
-    # (W−F+2P)/S+1
+    # (W−F+2P)/S+1 (this formula is from here http://cs231n.github.io/convolutional-networks/)
     def discriminator(self):
         if self.D:
             return self.D
@@ -176,19 +177,29 @@ class DCGAN(object):
 
 
 class BUSH_DCGAN(object):
-    def __init__(self, wanted_size=64):
+    def __init__(self, wanted_size=64, load_saved_network=False, model_name=''):
         self.img_rows = wanted_size
         self.img_cols = wanted_size
         self.channel = 3
 
         self.x_train = load_data()
 
-        self.DCGAN = DCGAN()
-        self.discriminator =  self.DCGAN.discriminator_model()
-        self.adversarial = self.DCGAN.adversarial_model()
-        self.generator = self.DCGAN.generator()
+        if load_saved_network:
+            self.generator = load_model('BushGAN%s_generator.h5' % model_name)
+            self.discriminator = load_model('BushGAN%s_discriminator.h5' % model_name)
 
-    def train(self, train_steps=2000, batch_size=64, save_interval=0):
+            self.adversarial = Sequential()
+            self.adversarial.add(self.generator())
+            self.adversarial.add(self.discriminator())
+            self.adversarial.compile(loss='binary_crossentropy', optimizer=optimizer,
+                                     metrics=['accuracy'])
+        else:
+            self.dcgan = DCGAN()
+            self.generator = self.dcgan.generator()
+            self.discriminator = self.dcgan.discriminator_model()
+            self.adversarial = self.dcgan.adversarial_model()
+
+    def train(self, train_steps=2000, batch_size=64, save_interval=0, model_name=''):
         noise_input = None
         if save_interval>0:
             noise_input = np.random.uniform(-1.0, 1.0, size=[16, 100])
@@ -235,9 +246,8 @@ class BUSH_DCGAN(object):
                 if (i+1)%save_interval==0:
                     self.plot_images(save2file=True, samples=noise_input.shape[0],
                                      noise=noise_input, step=(i+1))
-                    self.adversarial.save('BushGAN_adversarial.h5')
-                    self.discriminator.save('BushGAN_discriminator.h5')
-                    self.generator.save('BushGAN_generator.h5')
+                    self.generator.save('BushGAN%s_generator.h5' % model_name)
+                    self.discriminator.save('BushGAN%s_discriminator.h5' % model_name)
 
     def plot_images(self, save2file=False, fake=True, samples=16, noise=None, step=0):
         filename = 'GWB_real.png'
@@ -290,12 +300,14 @@ def load_data(n_images=530):
 
 
 if __name__ == '__main__':
-    mnist_dcgan = BUSH_DCGAN(wanted_size=64)
+    load_saved_network = True
+    model_name = '_v1'
+    bush_dcgan = BUSH_DCGAN(wanted_size=64, load_saved_network=load_saved_network, model_name=model_name)
     timer = ElapsedTimer()
-    mnist_dcgan.train(train_steps=10000, batch_size=32, save_interval=500)
+    bush_dcgan.train(train_steps=5, batch_size=32, save_interval=5, model_name=model_name)
     timer.elapsed_time()
-    mnist_dcgan.plot_images(fake=True)
-    mnist_dcgan.plot_images(fake=False, save2file=True)
+    bush_dcgan.plot_images(fake=True)
+    bush_dcgan.plot_images(fake=False, save2file=True)
 
 
 
