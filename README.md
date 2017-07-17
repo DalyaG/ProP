@@ -1,2 +1,2 @@
-# ProP
-PROfile Picture generator using GAN
+# ProfilePicGAN
+Profile Picture generator using GAN
