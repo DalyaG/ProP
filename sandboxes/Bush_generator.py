@@ -282,7 +282,7 @@ def num2paddedstring(i):
 
 def load_one_image(i, wanted_size=64):
     i_string = num2paddedstring(i + 1)
-    im = imread("C:\\Users\\Rey\\Projects\\ProP\\sandboxes\\lfw\\George_W_Bush\\George_W_Bush_0%s.jpg" % i_string)
+    im = imread("C:\\Users\\Rey\\Projects\\ProfilePicGAN\\sandboxes\\lfw\\George_W_Bush\\George_W_Bush_0%s.jpg" % i_string)
     original_size = im.shape[0]
     im_smaller = rescale(im, (wanted_size/original_size), mode='constant')
     return im_smaller
