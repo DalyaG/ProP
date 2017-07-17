@@ -12,6 +12,7 @@ import numpy as np
 from skimage.io import imread
 from skimage.transform import rescale
 import time
+import json
 
 from keras.models import Sequential
 from keras.layers import Dense, Activation, Flatten, Reshape
@@ -21,6 +22,7 @@ from keras.layers import BatchNormalization
 from keras.optimizers import Adam, RMSprop
 from keras.preprocessing.image import ImageDataGenerator
 from keras.models import load_model
+from keras.models import model_from_json
 
 import matplotlib.pyplot as plt
 
@@ -184,20 +186,13 @@ class BUSH_DCGAN(object):
 
         self.x_train = load_data()
 
+        self.dcgan = DCGAN()
+        self.generator = self.dcgan.generator()
+        self.discriminator = self.dcgan.discriminator_model()
         if load_saved_network:
-            self.generator = load_model('BushGAN%s_generator.h5' % model_name)
-            self.discriminator = load_model('BushGAN%s_discriminator.h5' % model_name)
-
-            self.adversarial = Sequential()
-            self.adversarial.add(self.generator())
-            self.adversarial.add(self.discriminator())
-            self.adversarial.compile(loss='binary_crossentropy', optimizer=optimizer,
-                                     metrics=['accuracy'])
-        else:
-            self.dcgan = DCGAN()
-            self.generator = self.dcgan.generator()
-            self.discriminator = self.dcgan.discriminator_model()
-            self.adversarial = self.dcgan.adversarial_model()
+            self.generator.load_weights('BushGAN%s_generator_weights.h5' % model_name)
+            self.discriminator.load_weights('BushGAN%s_discriminator_weights.h5' % model_name)
+        self.adversarial = self.dcgan.adversarial_model()
 
     def train(self, train_steps=2000, batch_size=64, save_interval=0, model_name=''):
         noise_input = None
@@ -246,8 +241,8 @@ class BUSH_DCGAN(object):
                 if (i+1)%save_interval==0:
                     self.plot_images(save2file=True, samples=noise_input.shape[0],
                                      noise=noise_input, step=(i+1))
-                    self.generator.save('BushGAN%s_generator.h5' % model_name)
-                    self.discriminator.save('BushGAN%s_discriminator.h5' % model_name)
+                    self.generator.save_weights('BushGAN%s_generator_weights.h5' % model_name)
+                    self.discriminator.save_weights('BushGAN%s_discriminator_weights.h5' % model_name)
 
     def plot_images(self, save2file=False, fake=True, samples=16, noise=None, step=0):
         filename = 'GWB_real.png'
@@ -300,7 +295,7 @@ def load_data(n_images=530):
 
 
 if __name__ == '__main__':
-    load_saved_network = True
+    load_saved_network = False
     model_name = '_v1'
     bush_dcgan = BUSH_DCGAN(wanted_size=64, load_saved_network=load_saved_network, model_name=model_name)
     timer = ElapsedTimer()
@@ -308,6 +303,9 @@ if __name__ == '__main__':
     timer.elapsed_time()
     bush_dcgan.plot_images(fake=True)
     bush_dcgan.plot_images(fake=False, save2file=True)
+
+
+
 
 
 
