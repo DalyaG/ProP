@@ -1,2 +1,10 @@
 v1 - funnelled faces
+     discriminator optimizer = RMSprop(lr=0.0002, decay=6e-8)
+     adverserial optimizer = RMSprop(lr=0.0001, decay=3e-8)
 v2 - -"-,    croped to have 2/3 of the picture
+     discriminator optimizer = RMSprop(lr=0.0002, decay=6e-8)
+     adverserial optimizer = RMSprop(lr=0.0001, decay=3e-8)
+v3 - -"-,    croped to have 2/3 of the picture
+     discriminator optimizer = RMSprop(lr=0.0002, decay=6e-8)
+     adverserial optimizer = RMSprop(lr=0.0001, decay=3e-8)
+     batch_size=64, n_batches=100000, not run on my Rey

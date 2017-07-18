@@ -5,7 +5,7 @@
 
 '''
 Dependencies: tensorflow 1.0 and keras 2.0
-Usage: python3 dcgan_mnist.py
+Usage: python3 ProfilePic_generator.py
 '''
 
 import numpy as np
@@ -14,6 +14,7 @@ from skimage.transform import rescale, resize
 import time
 import json
 import _pickle as pickle
+import os
 
 from keras.models import Sequential
 from keras.layers import Dense, Activation, Flatten, Reshape
@@ -229,8 +230,11 @@ class PP_DCGAN(object):
 
         batch = first_batch
         max_batches = n_batches + first_batch
+        # if we want to save the augmented images,to see how they look,
+        # add to the call to flow_from_directory
+        # flow_from_directory(...., save_to_dir=save_to_dir)
         for x_batch in datagen.flow_from_directory(target_folder, target_size=target_size,
-                                                   batch_size=batch_size, class_mode=class_mode, save_to_dir=save_to_dir):
+                                                   batch_size=batch_size, class_mode=class_mode):
 
             # generate fake images and train discriminator separately
             current_batch_size = x_batch.shape[0]
@@ -291,19 +295,21 @@ class PP_DCGAN(object):
 
 
 if __name__ == '__main__':
+    if not os.path.exists("saves"):
+        os.makedirs("saves")
     load_saved_network = False
-    model_name = '_v2'
+    model_name = '_v3'
     wanted_size = 64
     pp_dcgan = PP_DCGAN(wanted_size=wanted_size, load_saved_network=load_saved_network, model_name=model_name)
     timer = ElapsedTimer()
     batch_size = 64
     first_batch = 1  # should be >1 if load_saved_network==True
-    n_batches = 5  # total number of batches
-    save_interval = 5  # number of batches between saves
+    n_batches = 100000  # total number of batches
+    save_interval = 1000  # number of batches between saves
     pp_dcgan.train(first_batch=first_batch, batch_size=batch_size, n_batches=n_batches,
                      save_interval=save_interval, model_name=model_name)
     timer.elapsed_time()
-    pp_dcgan.plot_images(save2file=True)
+    pp_dcgan.plot_images(save2file=True, step=n_batches, model_name=model_name)
 
 
 
