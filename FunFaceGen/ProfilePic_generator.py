@@ -272,7 +272,7 @@ if __name__ == '__main__':
     model_name = '_v1'
     pp_dcgan = PP_DCGAN(wanted_size=64, load_saved_network=load_saved_network, model_name=model_name)
     timer = ElapsedTimer()
-    pp_dcgan.train(train_steps=5, batch_size=32, save_interval=5, model_name=model_name, max_pics_per_epoch=13233)
+    pp_dcgan.train(train_steps=250, batch_size=64, save_interval=50, model_name=model_name, max_pics_per_epoch=13233)
     timer.elapsed_time()
     pp_dcgan.plot_images(save2file=True)
 
