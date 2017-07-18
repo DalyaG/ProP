@@ -13,6 +13,7 @@ from skimage.io import imread
 from skimage.transform import rescale
 import time
 import json
+import _pickle as pickle
 
 from keras.models import Sequential
 from keras.layers import Dense, Activation, Flatten, Reshape
@@ -190,11 +191,11 @@ class BUSH_DCGAN(object):
         self.generator = self.dcgan.generator()
         self.discriminator = self.dcgan.discriminator_model()
         if load_saved_network:
-            self.generator.load_weights('BushGAN%s_generator_weights.h5' % model_name)
-            self.discriminator.load_weights('BushGAN%s_discriminator_weights.h5' % model_name)
+            self.generator.load_weights('saves/BushGAN%s_generator_weights.h5' % model_name)
+            self.discriminator.load_weights('saves/BushGAN%s_discriminator_weights.h5' % model_name)
         self.adversarial = self.dcgan.adversarial_model()
 
-    def train(self, train_steps=2000, batch_size=64, save_interval=0, model_name=''):
+    def train(self, first_batch=1, batch_size=64, n_batches=1000, save_interval=0, model_name=''):
         noise_input = None
         if save_interval>0:
             noise_input = np.random.uniform(-1.0, 1.0, size=[16, 100])
@@ -207,50 +208,58 @@ class BUSH_DCGAN(object):
             shear_range=0.1,
             fill_mode='nearest',
             horizontal_flip=True)
-        datagen.fit(x)
-        # we use a dummy label here because we need to enter something to the automatic augmenter,
-        # later we will make a batch specific label
-        y_dummy = np.ones([x.shape[0], 1])
 
-        for i in range(train_steps):
+        # keep track of training params
+        d_loss = np.zeros(2)
+        a_loss = np.zeros(2)
 
-            # train discriminator on fake and real images
-            batches = 0
-            for x_batch, y_dummy_batch in datagen.flow(x, y_dummy, batch_size=batch_size):
-                # generate input for fake images
-                current_batch_size = x_batch.shape[0]
-                noise = np.random.uniform(-1.0, 1.0, size=[current_batch_size, 100])
-                x_fake = self.generator.predict(noise)
-                x_batch_discriminator = np.concatenate((x_batch, x_fake))
-                y_batch_discriminator = np.ones([2 * current_batch_size, 1])
-                y_batch_discriminator[current_batch_size:, :] = 0
-                d_loss = self.discriminator.train_on_batch(x_batch_discriminator, y_batch_discriminator)
-                # we need to break the loop by hand because
-                # the generator loops indefinitely
-                batches += current_batch_size
-                if batches >= x.shape[0]:
-                    break
+        batch = first_batch
+        max_batches = n_batches+ first_batch
+        for x_batch in datagen.flow(x, batch_size=batch_size):
 
+            # generate fake images and train discriminator separately
+            current_batch_size = x_batch.shape[0]
+            noise = np.random.uniform(-1.0, 1.0, size=[current_batch_size, 100])
+            x_fake = self.generator.predict(noise)
+            x_batch_discriminator = np.concatenate((x_batch, x_fake))
+            y_batch_discriminator = np.ones([2 * current_batch_size, 1])
+            y_batch_discriminator[current_batch_size:, :] = 0
+            current_d_loss = self.discriminator.train_on_batch(x_batch_discriminator, y_batch_discriminator)
+            d_loss = np.vstack((d_loss, current_d_loss))
+
+            # train adversarial
             y_adversarial = np.ones([batch_size, 1])
             noise = np.random.uniform(-1.0, 1.0, size=[batch_size, 100])
-            a_loss = self.adversarial.train_on_batch(noise, y_adversarial)
-            log_mesg = "%d: [D loss: %f, acc: %f]" % (i, d_loss[0], d_loss[1])
-            log_mesg = "%s  [A loss: %f, acc: %f]" % (log_mesg, a_loss[0], a_loss[1])
-            print(log_mesg)
-            if save_interval>0:
-                if (i+1)%save_interval==0:
-                    self.plot_images(save2file=True, samples=noise_input.shape[0],
-                                     noise=noise_input, step=(i+1))
-                    self.generator.save_weights('BushGAN%s_generator_weights.h5' % model_name)
-                    self.discriminator.save_weights('BushGAN%s_discriminator_weights.h5' % model_name)
+            current_a_loss = self.adversarial.train_on_batch(noise, y_adversarial)
+            a_loss = np.vstack((a_loss, current_a_loss))
 
-    def plot_images(self, save2file=False, fake=True, samples=16, noise=None, step=0):
-        filename = 'GWB_real.png'
+            # log
+            log_mesg = "%d: [D loss: %f, acc: %f]" % (batch, current_d_loss[0], current_d_loss[1])
+            log_mesg = "%s  [A loss: %f, acc: %f]" % (log_mesg, current_a_loss[0], current_a_loss[1])
+            print(log_mesg)
+            if save_interval > 0:
+                if (batch + 1) % save_interval == 0:
+                    self.plot_images(save2file=True, samples=noise_input.shape[0],
+                                     noise=noise_input, step=(batch+1), model_name=model_name)
+                    self.generator.save_weights('saves/BushGAN%s_generator_weights.h5' % model_name)
+                    self.discriminator.save_weights('saves/BushGAN%s_discriminator_weights.h5' % model_name)
+                    with open('saves/BushGAN%s_loss.pkl' % model_name, 'wb') as fp:
+                        pickle.dump((a_loss, d_loss), fp, -1)
+                    fp.close()
+
+            # we need to break the loop by hand because
+            # the generator loops indefinitely
+            batch += 1
+            if batch >= max_batches:
+                break
+
+    def plot_images(self, save2file=False, fake=True, samples=16, noise=None, step=0, model_name=''):
+        filename = 'saves/GWB_real.png'
         if fake:
             if noise is None:
                 noise = np.random.uniform(-1.0, 1.0, size=[samples, 100])
             else:
-                filename = "GWB_fake_%d.png" % step
+                filename = "saves/GWB%s_fake_%d.png" % (model_name, step)
             images = self.generator.predict(noise)
         else:
             i = np.random.randint(0, self.x_train.shape[0], samples)
@@ -297,12 +306,18 @@ def load_data(n_images=530):
 if __name__ == '__main__':
     load_saved_network = False
     model_name = '_v1'
-    bush_dcgan = BUSH_DCGAN(wanted_size=64, load_saved_network=load_saved_network, model_name=model_name)
+    wanted_size = 64
+    bush_dcgan = BUSH_DCGAN(wanted_size=wanted_size, load_saved_network=load_saved_network, model_name=model_name)
     timer = ElapsedTimer()
-    bush_dcgan.train(train_steps=5, batch_size=32, save_interval=5, model_name=model_name)
+    batch_size = 64
+    first_batch = 1  # should be >1 if load_saved_network==True
+    n_batches = 5  # total number of batches
+    save_interval = 5  # number of batches between saves
+    bush_dcgan.train(first_batch=first_batch, batch_size=batch_size, n_batches=n_batches,
+                     save_interval=save_interval, model_name=model_name)
     timer.elapsed_time()
-    bush_dcgan.plot_images(fake=True)
-    bush_dcgan.plot_images(fake=False, save2file=True)
+    bush_dcgan.plot_images(fake=True, model_name=model_name)
+    bush_dcgan.plot_images(fake=False, save2file=True, model_name=model_name)
 
 
 

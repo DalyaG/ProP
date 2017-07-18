@@ -10,9 +10,10 @@ Usage: python3 dcgan_mnist.py
 
 import numpy as np
 from skimage.io import imread
-from skimage.transform import rescale
+from skimage.transform import rescale, resize
 import time
 import json
+import _pickle as pickle
 
 from keras.models import Sequential
 from keras.layers import Dense, Activation, Flatten, Reshape
@@ -25,6 +26,16 @@ from keras.models import load_model
 from keras.models import model_from_json
 
 import matplotlib.pyplot as plt
+
+
+def crop_img(img):
+    # scale img to be in [0,1]
+    img = np.array(img.astype(np.float32) / 255.0)
+    # crop the image to have more-or-less just the face
+    img_h, img_w, img_d = img.shape
+    cropped_img = img[int(img_h / 6):int(5 * img_h / 6), int(img_w / 6):int(5 * img_w / 6), :]
+    resized_img = resize(cropped_img, (img_h, img_w))
+    return resized_img
 
 
 class ElapsedTimer(object):
@@ -189,12 +200,11 @@ class PP_DCGAN(object):
         self.generator = self.dcgan.generator()
         self.discriminator = self.dcgan.discriminator_model()
         if load_saved_network:
-            self.generator.load_weights('ppGAN%s_generator_weights.h5' % model_name)
-            self.discriminator.load_weights('ppGAN%s_discriminator_weights.h5' % model_name)
+            self.generator.load_weights('saves/ppGAN%s_generator_weights.h5' % model_name)
+            self.discriminator.load_weights('saves/ppGAN%s_discriminator_weights.h5' % model_name)
         self.adversarial = self.dcgan.adversarial_model()
 
-    def train(self, train_steps=2000, batch_size=64, save_interval=0,
-              model_name='', save_dir='', max_pics_per_epoch=10000):
+    def train(self, first_batch=1, batch_size=64, n_batches=1000, save_interval=0, model_name=''):
         noise_input = None
         if save_interval>0:
             noise_input = np.random.uniform(-1.0, 1.0, size=[16, 100])
@@ -204,51 +214,65 @@ class PP_DCGAN(object):
             width_shift_range=0.1,
             height_shift_range=0.1,
             fill_mode='nearest',
-            horizontal_flip=True)
+            horizontal_flip=True,
+            preprocessing_function=crop_img)
 
         # some params for image loader
-        target_folder = 'C:\\Users\\Rey\\Projects\\ProfilePicGAN\\FunFaceGen\\lfw-deepfunneled'
+        target_folder = 'lfw-deepfunneled'
+        save_to_dir = 'augmented_imgs'
         target_size = (self.img_rows, self.img_cols)
         class_mode = None
 
-        for i in range(train_steps):
+        # keep track of training params
+        d_loss = np.zeros(2)
+        a_loss = np.zeros(2)
 
-            # train discriminator on fake and real images
-            batches = 0
-            for x_batch in datagen.flow_from_directory(target_folder, target_size=target_size,
-                                                       batch_size=batch_size, class_mode=class_mode):
-                # generate input for fake images
-                current_batch_size = x_batch.shape[0]
-                noise = np.random.uniform(-1.0, 1.0, size=[current_batch_size, 100])
-                x_fake = self.generator.predict(noise)
-                x_batch_discriminator = np.concatenate((x_batch, x_fake))
-                y_batch_discriminator = np.ones([2 * current_batch_size, 1])
-                y_batch_discriminator[current_batch_size:, :] = 0
-                d_loss = self.discriminator.train_on_batch(x_batch_discriminator, y_batch_discriminator)
-                # we need to break the loop by hand because
-                # the generator loops indefinitely
-                batches += current_batch_size
-                if batches >= max_pics_per_epoch:
-                    break
+        batch = first_batch
+        max_batches = n_batches + first_batch
+        for x_batch in datagen.flow_from_directory(target_folder, target_size=target_size,
+                                                   batch_size=batch_size, class_mode=class_mode, save_to_dir=save_to_dir):
 
+            # generate fake images and train discriminator separately
+            current_batch_size = x_batch.shape[0]
+            noise = np.random.uniform(-1.0, 1.0, size=[current_batch_size, 100])
+            x_fake = self.generator.predict(noise)
+            x_batch_discriminator = np.concatenate((x_batch, x_fake))
+            y_batch_discriminator = np.ones([2 * current_batch_size, 1])
+            y_batch_discriminator[current_batch_size:, :] = 0
+            current_d_loss = self.discriminator.train_on_batch(x_batch_discriminator, y_batch_discriminator)
+            d_loss = np.vstack((d_loss, current_d_loss))
+
+            # train adversarial
             y_adversarial = np.ones([batch_size, 1])
             noise = np.random.uniform(-1.0, 1.0, size=[batch_size, 100])
-            a_loss = self.adversarial.train_on_batch(noise, y_adversarial)
-            log_mesg = "%d: [D loss: %f, acc: %f]" % (i, d_loss[0], d_loss[1])
-            log_mesg = "%s  [A loss: %f, acc: %f]" % (log_mesg, a_loss[0], a_loss[1])
-            print(log_mesg)
-            if save_interval>0:
-                if (i+1)%save_interval==0:
-                    self.plot_images(save2file=True, samples=noise_input.shape[0],
-                                     noise=noise_input, step=(i+1))
-                    self.generator.save_weights('%sppGAN%s_generator_weights.h5' % (save_dir, model_name))
-                    self.discriminator.save_weights('%sppGAN%s_discriminator_weights.h5' % (save_dir, model_name))
+            current_a_loss = self.adversarial.train_on_batch(noise, y_adversarial)
+            a_loss = np.vstack((a_loss, current_a_loss))
 
-    def plot_images(self, save2file=False, samples=16, noise=None, step=0):
+            # log
+            log_mesg = "%d: [D loss: %f, acc: %f]" % (batch, current_d_loss[0], current_d_loss[1])
+            log_mesg = "%s  [A loss: %f, acc: %f]" % (log_mesg, current_a_loss[0], current_a_loss[1])
+            print(log_mesg)
+            if save_interval > 0:
+                if (batch + 1) % save_interval == 0:
+                    self.plot_images(save2file=True, samples=noise_input.shape[0],
+                                     noise=noise_input, step=(batch+1), model_name=model_name)
+                    self.generator.save_weights('saves/ppGAN%s_generator_weights.h5' % model_name)
+                    self.discriminator.save_weights('saves/ppGAN%s_discriminator_weights.h5' % model_name)
+                    with open('saves/ppGAN%s_loss.pkl' % model_name, 'wb') as fp:
+                        pickle.dump((a_loss, d_loss), fp, -1)
+                    fp.close()
+
+            # we need to break the loop by hand because
+            # the generator loops indefinitely
+            batch += 1
+            if batch >= max_batches:
+                break
+
+    def plot_images(self, save2file=False, samples=16, noise=None, step=0, model_name=''):
         if noise is None:
             noise = np.random.uniform(-1.0, 1.0, size=[samples, 100])
 
-        filename = "pp_fake_%d.png" % step
+        filename = "saves/pp%s_fake_%d.png" % (model_name, step)
         images = self.generator.predict(noise)
 
         plt.figure(figsize=(10,10))
@@ -267,12 +291,17 @@ class PP_DCGAN(object):
 
 
 if __name__ == '__main__':
-    save_dir = 'C:\\Users\\Rey\\Projects\\ProfilePicGAN\\FunFaceGen'
     load_saved_network = False
-    model_name = '_v1'
-    pp_dcgan = PP_DCGAN(wanted_size=64, load_saved_network=load_saved_network, model_name=model_name)
+    model_name = '_v2'
+    wanted_size = 64
+    pp_dcgan = PP_DCGAN(wanted_size=wanted_size, load_saved_network=load_saved_network, model_name=model_name)
     timer = ElapsedTimer()
-    pp_dcgan.train(train_steps=250, batch_size=64, save_interval=50, model_name=model_name, max_pics_per_epoch=13233)
+    batch_size = 64
+    first_batch = 1  # should be >1 if load_saved_network==True
+    n_batches = 5  # total number of batches
+    save_interval = 5  # number of batches between saves
+    pp_dcgan.train(first_batch=first_batch, batch_size=batch_size, n_batches=n_batches,
+                     save_interval=save_interval, model_name=model_name)
     timer.elapsed_time()
     pp_dcgan.plot_images(save2file=True)
 
