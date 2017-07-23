@@ -38,6 +38,13 @@ def crop_img(img):
     resized_img = resize(cropped_img, (img_h, img_w))
     return resized_img
 
+def crop_and_bw_img(img):
+    # crop and resize
+    resized_img = crop_img(img)
+    # transform to gray scale
+    bw_img = np.mean(resized_img)
+    return bw_img
+
 
 class ElapsedTimer(object):
     def __init__(self):
@@ -65,8 +72,43 @@ class DCGAN(object):
         self.AM = None  # adversarial model
         self.DM = None  # discriminator model
 
-    # (W−F+2P)/S+1 (this formula is from here http://cs231n.github.io/convolutional-networks/)
+    # the mnist architecture
+    def mnist_discriminator(self):
+            if self.D:
+                return self.D
+            self.D = Sequential()
+            depth = 64
+            dropout = 0.4
+            # In: 28 x 28 x 1, depth = 1
+            # Out: 14 x 14 x 1, depth=64
+            input_shape = (self.img_rows, self.img_cols, self.channel)
+            self.D.add(Conv2D(depth * 1, 5, strides=2, input_shape=input_shape,
+                              padding='same'))
+            self.D.add(LeakyReLU(alpha=0.2))
+            self.D.add(Dropout(dropout))
+
+            self.D.add(Conv2D(depth * 2, 5, strides=2, padding='same'))
+            self.D.add(LeakyReLU(alpha=0.2))
+            self.D.add(Dropout(dropout))
+
+            self.D.add(Conv2D(depth * 4, 5, strides=2, padding='same'))
+            self.D.add(LeakyReLU(alpha=0.2))
+            self.D.add(Dropout(dropout))
+
+            self.D.add(Conv2D(depth * 8, 5, strides=1, padding='same'))
+            self.D.add(LeakyReLU(alpha=0.2))
+            self.D.add(Dropout(dropout))
+
+            # Out: 1-dim probability
+            self.D.add(Flatten())
+            self.D.add(Dense(1))
+            self.D.add(Activation('sigmoid'))
+            self.D.summary()
+            return self.D
+
+    # my architecture
     def discriminator(self):
+        # (W−F+2P)/S+1 (this formula is from here http://cs231n.github.io/convolutional-networks/)
         if self.D:
             return self.D
 
@@ -110,6 +152,45 @@ class DCGAN(object):
         self.D.summary()
         return self.D
 
+    # the mnist architecture
+    def mnist_generator(self):
+        if self.G:
+            return self.G
+        self.G = Sequential()
+        dropout = 0.4
+        depth = 64+64+64+64
+        dim = 7
+        # In: 100
+        # Out: dim x dim x depth
+        self.G.add(Dense(dim*dim*depth, input_dim=100))
+        self.G.add(BatchNormalization(momentum=0.9))
+        self.G.add(Activation('relu'))
+        self.G.add(Reshape((dim, dim, depth)))
+        self.G.add(Dropout(dropout))
+
+        # In: dim x dim x depth
+        # Out: 2*dim x 2*dim x depth/2
+        self.G.add(UpSampling2D())
+        self.G.add(Conv2DTranspose(int(depth/2), 5, padding='same'))
+        self.G.add(BatchNormalization(momentum=0.9))
+        self.G.add(Activation('relu'))
+
+        self.G.add(UpSampling2D())
+        self.G.add(Conv2DTranspose(int(depth/4), 5, padding='same'))
+        self.G.add(BatchNormalization(momentum=0.9))
+        self.G.add(Activation('relu'))
+
+        self.G.add(Conv2DTranspose(int(depth/8), 5, padding='same'))
+        self.G.add(BatchNormalization(momentum=0.9))
+        self.G.add(Activation('relu'))
+
+        # Out: 28 x 28 x 1 grayscale image [0.0,1.0] per pix
+        self.G.add(Conv2DTranspose(1, 5, padding='same'))
+        self.G.add(Activation('sigmoid'))
+        self.G.summary()
+        return self.G
+
+    # my architecture
     def generator(self):
         if self.G:
             return self.G
@@ -168,6 +249,18 @@ class DCGAN(object):
         self.G.summary()
         return self.G
 
+    # the mnist architecture
+    def mnist_discriminator_model(self):
+        if self.DM:
+            return self.DM
+        optimizer = RMSprop(lr=0.0002, decay=6e-8)
+        self.DM = Sequential()
+        self.DM.add(self.mnist_discriminator())
+        self.DM.compile(loss='binary_crossentropy', optimizer=optimizer,
+                        metrics=['accuracy'])
+        return self.DM
+
+    # my architecture
     def discriminator_model(self):
         if self.DM:
             return self.DM
@@ -178,6 +271,19 @@ class DCGAN(object):
                         metrics=['accuracy'])
         return self.DM
 
+    # the mnist architecture
+    def mnist_adversarial_model(self):
+        if self.AM:
+            return self.AM
+        optimizer = RMSprop(lr=0.0001, decay=3e-8)
+        self.AM = Sequential()
+        self.AM.add(self.mnist_generator())
+        self.AM.add(self.mnist_discriminator())
+        self.AM.compile(loss='binary_crossentropy', optimizer=optimizer,
+                        metrics=['accuracy'])
+        return self.AM
+
+    # my architecture
     def adversarial_model(self):
         if self.AM:
             return self.AM
@@ -192,31 +298,51 @@ class DCGAN(object):
 
 class PP_DCGAN(object):
     # Profile Picture DCGAN
-    def __init__(self, wanted_size=64, load_saved_network=False, model_name=''):
-        self.img_rows = wanted_size
-        self.img_cols = wanted_size
-        self.channel = 3
+    def __init__(self, wanted_size=64, mnist_architecture=False, load_saved_network=False, model_name=''):
+        if mnist_architecture:
+            self.img_rows = 28
+            self.img_cols = 28
+            self.channel = 1
+        else:
+            self.img_rows = wanted_size
+            self.img_cols = wanted_size
+            self.channel = 3
 
-        self.dcgan = DCGAN()
-        self.generator = self.dcgan.generator()
-        self.discriminator = self.dcgan.discriminator_model()
-        if load_saved_network:
-            self.generator.load_weights('saves/ppGAN%s_generator_weights.h5' % model_name)
-            self.discriminator.load_weights('saves/ppGAN%s_discriminator_weights.h5' % model_name)
-        self.adversarial = self.dcgan.adversarial_model()
 
-    def train(self, first_batch=1, batch_size=64, n_batches=1000, save_interval=0, model_name=''):
+        if mnist_architecture:
+            self.dcgan = DCGAN(img_rows=self.img_rows, img_cols=self.img_cols, channel=self.channel)
+            self.generator = self.dcgan.mnist_generator()
+            self.discriminator = self.dcgan.mnist_discriminator_model()
+            self.adversarial = self.dcgan.mnist_adversarial_model()
+        else:
+            self.dcgan = DCGAN(img_rows=self.img_rows, img_cols=self.img_cols, channel=self.channel)
+            self.generator = self.dcgan.generator()
+            self.discriminator = self.dcgan.discriminator_model()
+            if load_saved_network:
+                self.generator.load_weights('saves/ppGAN%s_generator_weights.h5' % model_name)
+                self.discriminator.load_weights('saves/ppGAN%s_discriminator_weights.h5' % model_name)
+            self.adversarial = self.dcgan.adversarial_model()
+
+    def train(self, first_batch=1, batch_size=64, n_batches=1000, save_interval=0, mnist_architecture=False, model_name=''):
         noise_input = None
         if save_interval>0:
             noise_input = np.random.uniform(-1.0, 1.0, size=[16, 100])
 
         # use data augmentation
-        datagen = ImageDataGenerator(
-            width_shift_range=0.1,
-            height_shift_range=0.1,
-            fill_mode='nearest',
-            horizontal_flip=True,
-            preprocessing_function=crop_img)
+        if mnist_architecture:
+            datagen = ImageDataGenerator(
+                width_shift_range=0.1,
+                height_shift_range=0.1,
+                fill_mode='nearest',
+                horizontal_flip=True,
+                preprocessing_function=crop_img)
+        else:
+            datagen = ImageDataGenerator(
+                width_shift_range=0.1,
+                height_shift_range=0.1,
+                fill_mode='nearest',
+                horizontal_flip=True,
+                preprocessing_function=crop_and_bw_img)
 
         # some params for image loader
         target_folder = 'lfw-deepfunneled'
@@ -260,9 +386,9 @@ class PP_DCGAN(object):
                 if (batch + 1) % save_interval == 0:
                     self.plot_images(save2file=True, samples=noise_input.shape[0],
                                      noise=noise_input, step=(batch+1), model_name=model_name)
-                    self.generator.save_weights('saves/ppGAN%s_generator_weights.h5' % model_name)
-                    self.discriminator.save_weights('saves/ppGAN%s_discriminator_weights.h5' % model_name)
-                    with open('saves/ppGAN%s_loss.pkl' % model_name, 'wb') as fp:
+                    self.generator.save_weights('saves/ppGAN%s_generator_weights_%s.h5' % (model_name, batch+1))
+                    self.discriminator.save_weights('saves/ppGAN%s_discriminator_weights_%s.h5' % (model_name, batch+1))
+                    with open('saves/ppGAN%s_loss_%s.pkl' % (model_name, batch+1), 'wb') as fp:
                         pickle.dump((a_loss, d_loss), fp, -1)
                     fp.close()
 
@@ -298,18 +424,20 @@ if __name__ == '__main__':
     if not os.path.exists("saves"):
         os.makedirs("saves")
     load_saved_network = False
-    model_name = '_v3'
-    wanted_size = 64
-    pp_dcgan = PP_DCGAN(wanted_size=wanted_size, load_saved_network=load_saved_network, model_name=model_name)
+    mnist_architecture = True
+    model_name = '_mnist_arch_v4'
+    wanted_size = 28
+    pp_dcgan = PP_DCGAN(wanted_size=wanted_size, mnist_architecture=mnist_architecture,
+                        load_saved_network=load_saved_network, model_name=model_name)
     timer = ElapsedTimer()
     batch_size = 64
     first_batch = 1  # should be >1 if load_saved_network==True
-    n_batches = 100000  # total number of batches
-    save_interval = 1000  # number of batches between saves
+    n_batches = 10000  # total number of batches
+    save_interval = 500  # number of batches between saves
     pp_dcgan.train(first_batch=first_batch, batch_size=batch_size, n_batches=n_batches,
-                     save_interval=save_interval, model_name=model_name)
+                   save_interval=save_interval, mnist_architecture=mnist_architecture, model_name=model_name)
     timer.elapsed_time()
-    pp_dcgan.plot_images(save2file=True, step=n_batches, model_name=model_name)
+    pp_dcgan.plot_images(save2file=True, step=n_batches+first_batch-1, model_name=model_name)
 
 
 
