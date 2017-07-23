@@ -38,13 +38,6 @@ def crop_img(img):
     resized_img = resize(cropped_img, (img_h, img_w))
     return resized_img
 
-def crop_and_bw_img(img):
-    # crop and resize
-    resized_img = crop_img(img)
-    # transform to gray scale
-    bw_img = np.mean(resized_img)
-    return bw_img
-
 
 class ElapsedTimer(object):
     def __init__(self):
@@ -298,7 +291,8 @@ class DCGAN(object):
 
 class PP_DCGAN(object):
     # Profile Picture DCGAN
-    def __init__(self, wanted_size=64, mnist_architecture=False, load_saved_network=False, model_name=''):
+    def __init__(self, wanted_size=64, mnist_architecture=False,
+                 load_saved_network=False, model_name='', first_batch=1):
         if mnist_architecture:
             self.img_rows = 28
             self.img_cols = 28
@@ -307,7 +301,6 @@ class PP_DCGAN(object):
             self.img_rows = wanted_size
             self.img_cols = wanted_size
             self.channel = 3
-
 
         if mnist_architecture:
             self.dcgan = DCGAN(img_rows=self.img_rows, img_cols=self.img_cols, channel=self.channel)
@@ -319,8 +312,8 @@ class PP_DCGAN(object):
             self.generator = self.dcgan.generator()
             self.discriminator = self.dcgan.discriminator_model()
             if load_saved_network:
-                self.generator.load_weights('saves/ppGAN%s_generator_weights.h5' % model_name)
-                self.discriminator.load_weights('saves/ppGAN%s_discriminator_weights.h5' % model_name)
+                self.generator.load_weights('saves/ppGAN%s_generator_weights_%s.h5' % (model_name, first_batch))
+                self.discriminator.load_weights('saves/ppGAN%s_discriminator_weights_%s.h5' % (model_name, first_batch))
             self.adversarial = self.dcgan.adversarial_model()
 
     def train(self, first_batch=1, batch_size=64, n_batches=1000, save_interval=0, mnist_architecture=False, model_name=''):
@@ -329,20 +322,12 @@ class PP_DCGAN(object):
             noise_input = np.random.uniform(-1.0, 1.0, size=[16, 100])
 
         # use data augmentation
-        if mnist_architecture:
-            datagen = ImageDataGenerator(
-                width_shift_range=0.1,
-                height_shift_range=0.1,
-                fill_mode='nearest',
-                horizontal_flip=True,
-                preprocessing_function=crop_img)
-        else:
-            datagen = ImageDataGenerator(
-                width_shift_range=0.1,
-                height_shift_range=0.1,
-                fill_mode='nearest',
-                horizontal_flip=True,
-                preprocessing_function=crop_and_bw_img)
+        datagen = ImageDataGenerator(
+            width_shift_range=0.1,
+            height_shift_range=0.1,
+            fill_mode='nearest',
+            horizontal_flip=True,
+            preprocessing_function=crop_img)
 
         # some params for image loader
         target_folder = 'lfw-deepfunneled'
@@ -356,10 +341,14 @@ class PP_DCGAN(object):
 
         batch = first_batch
         max_batches = n_batches + first_batch
+        if mnist_architecture:
+            color_mode = "grayscale"
+        else:
+            color_mode = "rgb"
         # if we want to save the augmented images,to see how they look,
         # add to the call to flow_from_directory
         # flow_from_directory(...., save_to_dir=save_to_dir)
-        for x_batch in datagen.flow_from_directory(target_folder, target_size=target_size,
+        for x_batch in datagen.flow_from_directory(target_folder, target_size=target_size, color_mode=color_mode,
                                                    batch_size=batch_size, class_mode=class_mode):
 
             # generate fake images and train discriminator separately
@@ -384,8 +373,7 @@ class PP_DCGAN(object):
             print(log_mesg)
             if save_interval > 0:
                 if (batch + 1) % save_interval == 0:
-                    self.plot_images(save2file=True, samples=noise_input.shape[0],
-                                     noise=noise_input, step=(batch+1), model_name=model_name)
+                    self.plot_images(save2file=True, step=(batch+1), model_name=model_name)
                     self.generator.save_weights('saves/ppGAN%s_generator_weights_%s.h5' % (model_name, batch+1))
                     self.discriminator.save_weights('saves/ppGAN%s_discriminator_weights_%s.h5' % (model_name, batch+1))
                     with open('saves/ppGAN%s_loss_%s.pkl' % (model_name, batch+1), 'wb') as fp:
@@ -409,8 +397,12 @@ class PP_DCGAN(object):
         for i in range(images.shape[0]):
             plt.subplot(4, 4, i+1)
             image = images[i, :, :, :]
-            image = np.reshape(image, [self.img_rows, self.img_cols, self.channel])
-            plt.imshow(image)
+            if self.channel==1:
+                image = np.reshape(image, [self.img_rows, self.img_cols])
+                plt.imshow(image, cmap='Greys')
+            else:
+                image = np.reshape(image, [self.img_rows, self.img_cols, self.channel])
+                plt.imshow(image)
             plt.axis('off')
         plt.tight_layout()
         if save2file:
@@ -423,17 +415,19 @@ class PP_DCGAN(object):
 if __name__ == '__main__':
     if not os.path.exists("saves"):
         os.makedirs("saves")
-    load_saved_network = False
+
+    load_saved_network = True
     mnist_architecture = True
     model_name = '_mnist_arch_v4'
     wanted_size = 28
-    pp_dcgan = PP_DCGAN(wanted_size=wanted_size, mnist_architecture=mnist_architecture,
-                        load_saved_network=load_saved_network, model_name=model_name)
-    timer = ElapsedTimer()
     batch_size = 64
-    first_batch = 1  # should be >1 if load_saved_network==True
+    first_batch = 10000  # should be >1 if load_saved_network==True
     n_batches = 10000  # total number of batches
     save_interval = 500  # number of batches between saves
+
+    pp_dcgan = PP_DCGAN(wanted_size=wanted_size, mnist_architecture=mnist_architecture,
+                        load_saved_network=load_saved_network, model_name=model_name, first_batch=first_batch)
+    timer = ElapsedTimer()
     pp_dcgan.train(first_batch=first_batch, batch_size=batch_size, n_batches=n_batches,
                    save_interval=save_interval, mnist_architecture=mnist_architecture, model_name=model_name)
     timer.elapsed_time()
